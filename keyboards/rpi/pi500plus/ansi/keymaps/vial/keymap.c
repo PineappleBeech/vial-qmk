@@ -48,7 +48,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 			KC_LCTL, KC_LGUI, KC_LALT,                    KC_SPC,                       KC_RALT, MO(_FN), KC_RCTL, KC_LEFT, KC_DOWN, KC_RGHT),
 
 		[_FN] = LAYOUT(
-			_______, _______, _______, RPI_RGB_HUI, RPI_RGB_MOD, RM_VALD, RM_VALU, _______, _______, _______, KC_AUDIO_MUTE, KC_AUDIO_VOL_DOWN, KC_AUDIO_VOL_UP, _______, KC_INS,
+			_______, RPI_LOG_DUMP, _______, RPI_RGB_HUI, RPI_RGB_MOD, RM_VALD, RM_VALU, _______, _______, _______, KC_AUDIO_MUTE, KC_AUDIO_VOL_DOWN, KC_AUDIO_VOL_UP, _______, KC_INS,
 			_______, _______, _______, _______, _______, _______, _______, _______, _______, _______, _______, _______, _______,          _______, _______,
 			_______, 		  _______, _______, _______, _______, _______, _______, _______, _______, _______, _______, _______, _______, _______, _______,
 			_______, 		  _______, _______, _______, _______, _______, _______, _______, _______, _______, _______, _______,          _______, _______,

@@ -48,6 +48,47 @@ static int8_t uart_sendchar(uint8_t c)
 }
 #endif
 
+// Console output is discarded by the USB stack whenever the link is not
+// USB_ACTIVE (usb_endpoint_in_send() returns early), which is exactly the
+// window we care about when the host suspends or the mainboard powers down.
+// Stash it in RAM instead and replay it once the host is back.
+#if defined(RPI_LOG_RING) && !defined(NO_PRINT) && !defined(WANT_UART_LOGGING)
+#include "sendchar.h"
+
+static char     log_ring[RPI_LOG_RING_SIZE];
+static uint16_t log_head;    // next write position
+static bool     log_wrapped; // oldest output has been overwritten
+
+static int8_t rpi_sendchar(uint8_t c) {
+#if 0
+    if (usb_active) {
+        return sendchar(c);
+    }
+#endif
+    log_ring[log_head++] = (char)c;
+    if (log_head >= RPI_LOG_RING_SIZE) {
+        log_head    = 0;
+        log_wrapped = true;
+    }
+    return 0;
+}
+
+// Replays oldest-first. Only useful with a console already attached - sendchar
+// drops output when nothing is listening on the endpoint.
+static void rpi_log_dump(void) {
+    if (log_wrapped) {
+        for (uint16_t i = log_head; i < RPI_LOG_RING_SIZE; i++) {
+            sendchar(log_ring[i]);
+        }
+    }
+    for (uint16_t i = 0; i < log_head; i++) {
+        sendchar(log_ring[i]);
+    }
+    log_head    = 0;
+    log_wrapped = false;
+}
+#endif // RPI_LOG_RING
+
 #ifdef RGB_MATRIX_ENABLE
 // Struct for EEPROM storage of RGB mode:
 typedef union {
@@ -93,6 +134,9 @@ void keyboard_pre_init_kb(void) {
     uart_init(115200);
     print_set_sendchar(uart_sendchar);
     print("Starting keyboard\n");
+#endif
+#if defined(RPI_LOG_RING) && !defined(NO_PRINT) && !defined(WANT_UART_LOGGING)
+    print_set_sendchar(rpi_sendchar);
 #endif
     keyboard_pre_init_user(); // Continue QMK Init
 }
@@ -551,6 +595,15 @@ bool process_record_kb(uint16_t key_code, keyrecord_t *record) { // Custom keyco
             }
             return false;
         #endif //#ifdef RGB_MATRIX_ENABLE
+#if defined(RPI_LOG_RING) && !defined(NO_PRINT) && !defined(WANT_UART_LOGGING)
+        case RPI_LOG_DUMP:
+            if (record->event.pressed) {
+                xprintf("---- buffered log (wrapped=%u) ----\n", log_wrapped);
+                rpi_log_dump();
+                xprintf("---- end of buffered log ----\n");
+            }
+            return false;
+#endif
         case KC_SPC:
         case KC_LSFT:
         case KC_RSFT:

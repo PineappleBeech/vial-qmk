@@ -23,6 +23,11 @@
 
 // #define UART_TX_PIN GP28 // Debug UART TX Pin (requires board mod)
 
+// Buffer log output in RAM whenever USB is down (host suspended / powered off),
+// so it can be replayed over the console with the RPI_LOG_DUMP keycode.
+#define RPI_LOG_RING
+#define RPI_LOG_RING_SIZE 16384
+
 // Disable double tap to reseet:
 #define RP2040_BOOTLOADER_DOUBLE_TAP_RESET_TIMEOUT 0
 

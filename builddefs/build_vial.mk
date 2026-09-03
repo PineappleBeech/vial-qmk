@@ -12,7 +12,11 @@ KEY_OVERRIDE_ENABLE ?= yes
 LAYER_LOCK_ENABLE ?= yes
 REPEAT_KEY_ENABLE ?= yes
 SRC += $(QUANTUM_DIR)/vial.c
-OPT_DEFS += -DVIAL_ENABLE -DNO_DEBUG -DSERIAL_NUMBER=\"vial:f64c2b3c\" -DCAPS_WORD_INVERT_ON_SHIFT
+OPT_DEFS += -DVIAL_ENABLE -DSERIAL_NUMBER=\"vial:f64c2b3c\" -DCAPS_WORD_INVERT_ON_SHIFT
+# Keep dprintf() available when the console is on; otherwise strip debug logging as before.
+ifneq ($(strip $(CONSOLE_ENABLE)), yes)
+    OPT_DEFS += -DNO_DEBUG
+endif
 
 ifeq ($(strip $(VIAL_INSECURE)), yes)
     OPT_DEFS += -DVIAL_INSECURE

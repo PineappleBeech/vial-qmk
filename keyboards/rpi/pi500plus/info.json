@@ -3,7 +3,7 @@
     "maintainer": "Raspberry Pi",
     "features": {
         "bootmagic": false,
-        "console": false,
+        "console": true,
         "extrakey": true,
         "mousekey": false,
         "nkro": true,

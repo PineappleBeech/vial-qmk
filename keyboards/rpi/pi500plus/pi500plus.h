@@ -28,7 +28,8 @@ enum rpi_keycodes {
 	RPI_RGB_MOD = QK_KB_0, // Custom RGB Mode keycode
 	RPI_RGB_RMOD, // Custom RGB Mode keycode (reverse)
 	RPI_RGB_HUI, // Custom RGB Hue increase keycode
-	RPI_RGB_HUD // Custom RGB Hue decrease keycode
+	RPI_RGB_HUD, // Custom RGB Hue decrease keycode
+	RPI_LOG_DUMP // Replay the buffered log over the console
 };
 
 #ifdef RGB_MATRIX_ENABLE
@@ -60,7 +61,7 @@ enum rpi_rgb_modes_enum {
 //#define DEBUG_LED_ENABLE
 
 // Other Debug Options
-// #define DEBUG_ENABLE
+#define DEBUG_ENABLE
 // #define DEBUG_KEYBOARD_ENABLE
 // #define DEBUG_MATRIX_ENABLE
 

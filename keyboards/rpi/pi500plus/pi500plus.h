@@ -32,9 +32,18 @@ enum rpi_keycodes {
 	RPI_LOG_DUMP // Replay the buffered log over the console
 };
 
+typedef enum {
+	RPI_ANIM_OFF, // Starting state
+	RPI_ANIM_STARTUP_ANIM, // Startup animation
+	RPI_ANIM_STARTUP_FADE, // Startup Fade to effect
+	RPI_ANIM_ON, // On
+	RPI_ANIM_IDLE, // Future use
+} rpi_anim_state_t;
+
 #ifdef RGB_MATRIX_ENABLE
 
 #ifdef RPI_RGB_STARTUP_ANIMATION
+
 void rpi_rgb_matrix_startup_callback(uint8_t startup_animation_type);
 #endif //#ifdef RPI_RGB_STARTUP_ANIMATION
 

@@ -159,10 +159,9 @@ void eeconfig_init_rpi_kb(void){
 }
 
 #ifdef RPI_RGB_DISABLE_AUTO
-bool mainboard_on = false;
 uint32_t power_led_timer;
 bool power_led_timer_running;
-bool startup_running = false;
+static rpi_anim_state_t anim = RPI_ANIM_OFF;
 
 #ifdef RPI_RGB_STARTUP_ANIMATION
 #define SAT_FADE_TIMER_DELAY 5
@@ -176,16 +175,60 @@ bool sat_fade_timer_running = false;
 uint32_t val_fade_timer;
 uint8_t val_fade_target;
 bool val_fade_timer_running = false;
+#endif // RPI_RGB_STARTUP_ANIMATION
+
+static void rpi_rgb_set_anim_state(rpi_anim_state_t next) {
+    dprintf("Changing state %lu -> %lu\n", (uint32_t) anim, (uint32_t) next);
+    if (anim == next) {
+        dprintf("Not changing state\n");
+        return;
+    }
+
+    switch (anim) {
+        case RPI_ANIM_OFF:
+            rgb_matrix_set_flags_noeeprom(LED_FLAG_ALL);
+            break;
+#ifdef RPI_RGB_STARTUP_ANIMATION
+        case RPI_ANIM_STARTUP_ANIM:
+            reload_rpi_rgb_mode_from_eeprom();
+            rgb_matrix_reload_from_eeprom();
+            break;
+        case RPI_ANIM_STARTUP_FADE:
+            if (sat_fade_timer_running) {
+                sat_fade_timer_running = false;
+                rgb_matrix_config.hsv.s = sat_fade_target;
+            }
+            if (val_fade_timer_running) {
+                val_fade_timer_running = false;
+                rgb_matrix_config.hsv.v = val_fade_target;
+            }
+            break;
+#endif // RPI_RGB_STARTUP_ANIMATION
+        default:
+            break;
+    }
+
+    anim = next;
+
+    switch (anim) {
+        case RPI_ANIM_OFF:
+            rgb_matrix_set_flags_noeeprom(LED_FLAG_NONE);
+            break;
+        default:
+            break;
+    }
+}
+
+#ifdef RPI_RGB_STARTUP_ANIMATION
 
 void rpi_rgb_matrix_startup_callback(uint8_t startup_animation_mode) {
     dprintf("Startup Callback\n");
     uint8_t startup_animation_option = rpi_rgb_current_mode_startup_animation();
-    reload_rpi_rgb_mode_from_eeprom();
-    rgb_matrix_reload_from_eeprom();
-    if(mainboard_on) { // Check mainboard hasn't powered off during startup animation
+    if(anim == RPI_ANIM_STARTUP_ANIM) { // Check mainboard hasn't powered off during startup animation
         memset(g_rgb_frame_buffer, 0, sizeof g_rgb_frame_buffer); // Ensures framebuffer animations reset on reboot
         switch (startup_animation_option) {
             case START_ANIM_B_FADE_VAL:
+                rpi_rgb_set_anim_state(RPI_ANIM_STARTUP_FADE);
                 val_fade_target = rgb_matrix_config.hsv.v;
                 dprintf("rgb_matrix_config.hsv.v = %d \n", rgb_matrix_config.hsv.v);
                 val_fade_timer = sync_timer_read32() + VAL_FADE_TIMER_DELAY;
@@ -194,6 +237,7 @@ void rpi_rgb_matrix_startup_callback(uint8_t startup_animation_mode) {
                 dprintf("Val Fade Begun\n");
                 break;
             case START_ANIM_W_FADE_SAT:
+                rpi_rgb_set_anim_state(RPI_ANIM_STARTUP_FADE);
                 sat_fade_target = rgb_matrix_config.hsv.s;
                 dprintf("rgb_matrix_config.hsv.s = %d \n", rgb_matrix_config.hsv.s);
                 sat_fade_timer = sync_timer_read32() + SAT_FADE_TIMER_DELAY;
@@ -202,12 +246,8 @@ void rpi_rgb_matrix_startup_callback(uint8_t startup_animation_mode) {
                 dprintf("Sat Fade Begun\n");
                 break;
             default:
-                startup_running = false;
+                rpi_rgb_set_anim_state(RPI_ANIM_ON);
         }
-    }
-    else {
-        rgb_matrix_set_flags_noeeprom(LED_FLAG_NONE);
-        startup_running = false;
     }
 }
 #endif // RPI_RGB_STARTUP_ANIMATION
@@ -216,33 +256,37 @@ void rpi_rgb_matrix_startup(void) {
     reload_rpi_rgb_mode_from_eeprom();
     rgb_matrix_reload_from_eeprom();
     #ifdef RPI_RGB_STARTUP_ANIMATION
-    if(mainboard_on && !startup_running) {
-        startup_running = true;
-        rgb_matrix_set_flags_noeeprom(LED_FLAG_ALL); // Enable RGB flags for animation
+    if(anim == RPI_ANIM_OFF) {
         // Active RPI RGB mode local copy updated in eeconfig_init so don't need to re-read
         switch (rpi_rgb_current_mode_startup_animation()) {
             case NO_START_ANIMATION:
+                rpi_rgb_set_anim_state(RPI_ANIM_ON);
                 memset(g_rgb_frame_buffer, 0, sizeof g_rgb_frame_buffer); // Ensures framebuffer animations reset on reboot
-                startup_running = false;
                 break;
             case START_ANIM_B_NO_FADE:
+                rpi_rgb_set_anim_state(RPI_ANIM_STARTUP_ANIM);
                 rgb_matrix_config.mode = RGB_MATRIX_CUSTOM_STARTUP_ANIM_B;
                 break;
             case START_ANIM_B_FADE_VAL:
+                rpi_rgb_set_anim_state(RPI_ANIM_STARTUP_ANIM);
                 rgb_matrix_config.mode = RGB_MATRIX_CUSTOM_STARTUP_ANIM_B;
                 break;
             case START_ANIM_W_NO_FADE:
+                rpi_rgb_set_anim_state(RPI_ANIM_STARTUP_ANIM);
                 rgb_matrix_config.mode = RGB_MATRIX_CUSTOM_STARTUP_ANIM_W;
                 break;
             case START_ANIM_W_FADE_SAT:
+                rpi_rgb_set_anim_state(RPI_ANIM_STARTUP_ANIM);
                 rgb_matrix_config.mode = RGB_MATRIX_CUSTOM_STARTUP_ANIM_W;
                 break;
         }
-        if (startup_running) {
+        if (anim == RPI_ANIM_STARTUP_ANIM) {
             dprintf("Startup Animation Started\n");
         }
         // Startup animation callback function called at end of animation
     }
+    #else // RPI_RGB_STARTUP_ANIMATION
+    rpi_rgb_set_anim_state(RPI_ANIM_ON);
     #endif // RPI_RGB_STARTUP_ANIMATION
 }
 #endif // RPI_RGB_DISABLE_AUTO
@@ -336,9 +380,9 @@ void housekeeping_task_kb(void) {
                 bit_code <<= 1;
             }
         }
+
         #ifdef RGB_MATRIX_ENABLE
-        if (!mainboard_on) {
-            mainboard_on = true;
+        if (anim == RPI_ANIM_OFF) {
             rpi_rgb_matrix_startup(); // Reenable stored rgb state with startup animation
         }
         #endif // #ifdef RGB_MATRIX_ENABLE
@@ -352,18 +396,15 @@ void housekeeping_task_kb(void) {
     bool mainboard_status = readPin(RED_LED); // RP1_STAT_LED (active low)
     if (power_led_timer_running) { // If timer is running, wait until it has complete before rechecking status and committing to status change
         if (sync_timer_read32() > power_led_timer) {
-            if (!mainboard_status && !usb_active && mainboard_on) {
-                mainboard_on = false;
+            if (!mainboard_status && !usb_active && (anim != RPI_ANIM_OFF)) {
+                rpi_rgb_set_anim_state(RPI_ANIM_OFF);
                 dprintf("RED LED on (Device powered off)\n");
-                if (!startup_running) { // Startup animation functions will turn off animation cleanly
-                    rgb_matrix_set_flags_noeeprom(LED_FLAG_NONE); // Disable RGB (apart from indicators)
-                }
             }
             power_led_timer_running = false;
         }
     }
     else {
-        if (!mainboard_status && mainboard_on) {
+        if (!mainboard_status && (anim != RPI_ANIM_OFF)) {
             power_led_timer = sync_timer_read32() + RPI_RGB_DISABLE_TIMER;
             power_led_timer_running = true;
             dprintf("RED LED Timer Started\n");
@@ -382,11 +423,7 @@ void housekeeping_task_kb(void) {
             }
             dprintf("rgb_matrix_config.hsv.s = %d \n", rgb_matrix_config.hsv.s);
             if(rgb_matrix_config.hsv.s == sat_fade_target) {
-                sat_fade_timer_running = false;
-                if (!mainboard_on) {
-                    rgb_matrix_set_flags_noeeprom(LED_FLAG_NONE);
-                }
-                startup_running = false;
+                rpi_rgb_set_anim_state(RPI_ANIM_ON);
                 dprintf("Sat Fade Complete\n");
             }
             else {
@@ -405,11 +442,7 @@ void housekeeping_task_kb(void) {
             }
             dprintf("rgb_matrix_config.hsv.v = %d \n", rgb_matrix_config.hsv.v);
             if(rgb_matrix_config.hsv.v == val_fade_target) {
-                val_fade_timer_running = false;
-                if (!mainboard_on) {
-                    rgb_matrix_set_flags_noeeprom(LED_FLAG_NONE);
-                }
-                startup_running = false;
+                rpi_rgb_set_anim_state(RPI_ANIM_ON);
                 dprintf("Val Fade Complete\n");
             }
             else {
@@ -446,7 +479,7 @@ static void record_boot_key(int key_code, bool pressed) {
 }
 
 #ifndef RPI_RGB_DISABLE_AUTO
-bool mainboard_on = true;
+static rpi_anim_state_t anim = RPI_ANIM_ON;
 #endif
 
 bool process_record_kb(uint16_t key_code, keyrecord_t *record) { // Custom keycode handling
@@ -455,7 +488,7 @@ bool process_record_kb(uint16_t key_code, keyrecord_t *record) { // Custom keyco
         // Change Toggle behaviour so indicator LEDs cannot be disabled:
         case RGB_TOG:
         case QK_RGB_MATRIX_TOGGLE:
-            if (record->event.pressed && mainboard_on && !startup_running) {
+            if (record->event.pressed && (anim == RPI_ANIM_ON)) {
                 switch (rgb_matrix_get_flags()) {
                     case LED_FLAG_ALL: {
                         rgb_matrix_set_flags(LED_FLAG_NONE); // Stores status to EEPROM
@@ -469,7 +502,7 @@ bool process_record_kb(uint16_t key_code, keyrecord_t *record) { // Custom keyco
         // Disable all default RGB Keycodes when mainboard off
         case RGB_MOD:
         case QK_RGB_MATRIX_MODE_NEXT:
-            if (mainboard_on && !startup_running) {
+            if (anim == RPI_ANIM_ON) {
                 return true;
             }
             else {
@@ -477,7 +510,7 @@ bool process_record_kb(uint16_t key_code, keyrecord_t *record) { // Custom keyco
             }
         case RGB_RMOD:
         case QK_RGB_MATRIX_MODE_PREVIOUS:
-            if (mainboard_on && !startup_running) {
+            if (anim == RPI_ANIM_ON) {
                 return true;
             }
             else {
@@ -485,7 +518,7 @@ bool process_record_kb(uint16_t key_code, keyrecord_t *record) { // Custom keyco
             }
         case RGB_HUD:
         case QK_RGB_MATRIX_HUE_DOWN:
-            if (mainboard_on && !startup_running) {
+            if (anim == RPI_ANIM_ON) {
                 return true;
             }
             else {
@@ -493,7 +526,7 @@ bool process_record_kb(uint16_t key_code, keyrecord_t *record) { // Custom keyco
             }
         case RGB_HUI:
         case QK_RGB_MATRIX_HUE_UP:
-            if (mainboard_on && !startup_running) {
+            if (anim == RPI_ANIM_ON) {
                 return true;
             }
             else {
@@ -501,7 +534,7 @@ bool process_record_kb(uint16_t key_code, keyrecord_t *record) { // Custom keyco
             }
         case RGB_SAI:
         case QK_RGB_MATRIX_SATURATION_UP:
-            if (mainboard_on && !startup_running) {
+            if (anim == RPI_ANIM_ON) {
                 return true;
             }
             else {
@@ -509,7 +542,7 @@ bool process_record_kb(uint16_t key_code, keyrecord_t *record) { // Custom keyco
             }
         case RGB_SAD:
         case QK_RGB_MATRIX_SATURATION_DOWN:
-            if (mainboard_on && !startup_running) {
+            if (anim == RPI_ANIM_ON) {
                 return true;
             }
             else {
@@ -517,7 +550,7 @@ bool process_record_kb(uint16_t key_code, keyrecord_t *record) { // Custom keyco
             }
          case RGB_VAI:
          case QK_RGB_MATRIX_VALUE_UP:
-            if (mainboard_on && !startup_running) {
+            if (anim == RPI_ANIM_ON) {
                 return true;
             }
             else {
@@ -525,7 +558,7 @@ bool process_record_kb(uint16_t key_code, keyrecord_t *record) { // Custom keyco
             }
          case RGB_VAD:
          case QK_RGB_MATRIX_VALUE_DOWN:
-            if (mainboard_on && !startup_running) {
+            if (anim == RPI_ANIM_ON) {
                 return true;
             }
             else {
@@ -533,7 +566,7 @@ bool process_record_kb(uint16_t key_code, keyrecord_t *record) { // Custom keyco
             }
          case RGB_SPI:
          case QK_RGB_MATRIX_SPEED_UP:
-            if (mainboard_on && !startup_running) {
+            if (anim == RPI_ANIM_ON) {
                 return true;
             }
             else {
@@ -541,7 +574,7 @@ bool process_record_kb(uint16_t key_code, keyrecord_t *record) { // Custom keyco
             }
          case RGB_SPD:
          case QK_RGB_MATRIX_SPEED_DOWN:
-            if (mainboard_on && !startup_running) {
+            if (anim == RPI_ANIM_ON) {
                 return true;
             }
             else {
@@ -549,7 +582,7 @@ bool process_record_kb(uint16_t key_code, keyrecord_t *record) { // Custom keyco
             }
         // Custom RGB Keycode behaviour:
         case RPI_RGB_MOD:
-            if (record->event.pressed && mainboard_on && !startup_running) {
+            if (record->event.pressed && (anim == RPI_ANIM_ON)) {
                 kb_config.raw = eeconfig_read_kb();
                 uint8_t is_shifted = get_mods() & MOD_MASK_SHIFT;
                 if(is_shifted) { // Decrease RGB Mode
@@ -561,7 +594,7 @@ bool process_record_kb(uint16_t key_code, keyrecord_t *record) { // Custom keyco
             }
             return false;
         case RPI_RGB_RMOD:
-            if (record->event.pressed && mainboard_on && !startup_running) {
+            if (record->event.pressed && (anim == RPI_ANIM_ON)) {
                 kb_config.raw = eeconfig_read_kb();
                 uint8_t is_shifted = get_mods() & MOD_MASK_SHIFT;
                 if(is_shifted) { // Decrease RGB Mode
@@ -573,7 +606,7 @@ bool process_record_kb(uint16_t key_code, keyrecord_t *record) { // Custom keyco
             }
             return false;
         case RPI_RGB_HUI:
-            if (record->event.pressed && mainboard_on && !startup_running && !rpi_rgb_current_mode_is_fixed_hue()) { // Allow hue change only if mainboard active & RGB mode does not have fixed hue
+            if (record->event.pressed && (anim == RPI_ANIM_ON) && !rpi_rgb_current_mode_is_fixed_hue()) { // Allow hue change only if mainboard active & RGB mode does not have fixed hue
                 uint8_t is_shifted = get_mods() & MOD_MASK_SHIFT;
                 if(is_shifted) { // Decrease RGB Hue
                     change_rpi_rgb_hue(false);
@@ -584,7 +617,7 @@ bool process_record_kb(uint16_t key_code, keyrecord_t *record) { // Custom keyco
             }
             return false;
         case RPI_RGB_HUD:
-            if (record->event.pressed && mainboard_on && !startup_running && !rpi_rgb_current_mode_is_fixed_hue()) { // Allow hue change only if mainboard active & RGB mode does not have fixed hue
+            if (record->event.pressed && (anim == RPI_ANIM_ON) && !rpi_rgb_current_mode_is_fixed_hue()) { // Allow hue change only if mainboard active & RGB mode does not have fixed hue
                 uint8_t is_shifted = get_mods() & MOD_MASK_SHIFT;
                 if(is_shifted) { // Increase RGB Hue
                     change_rpi_rgb_hue(true);
@@ -652,7 +685,7 @@ bool rgb_matrix_indicators_advanced_kb(uint8_t led_min, uint8_t led_max) {
     }
     #endif // #ifdef RPI_ACTIVITY_LED
     #ifdef CAPS_LOCK_LED_INDEX
-    if(!startup_running) {
+    if((anim == RPI_ANIM_ON) || (anim == RPI_ANIM_OFF) || (anim == RPI_ANIM_IDLE)) {
         if (rgb_matrix_get_sat()<100) { // Where saturation is low (keys close to white), CAPS will light up red instead of white for visibility
             if (host_keyboard_led_state().caps_lock) {
                 RGB_MATRIX_INDICATOR_SET_COLOR(CAPS_LOCK_LED_INDEX, indicator_brightness(), 0, 0);

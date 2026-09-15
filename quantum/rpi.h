@@ -30,7 +30,8 @@
 // Changing these values will cause the EEPROM on previous versions to be invalidated
 #define RPI_RGB_SEQUENCE_MODES_MAX 7
 #define RPI_RGB_SEQUENCE_MODE_CUSTOM_INDEX RPI_RGB_SEQUENCE_MODES_MAX
-#define RPI_RGB_MODES_MAX (RPI_RGB_SEQUENCE_MODES_MAX + 1)
+#define RPI_RGB_SEQUENCE_MODE_IDLE_INDEX (RPI_RGB_SEQUENCE_MODES_MAX + 1)
+#define RPI_RGB_MODES_MAX (RPI_RGB_SEQUENCE_MODES_MAX + 2)
 #define RPI_RGB_CUSTOM_LEDS_MAX 16*6
 STATIC_ASSERT(RGB_MATRIX_LED_COUNT <= RPI_RGB_CUSTOM_LEDS_MAX, "RGB_MATRIX_LED_COUNT is greater than the EEPROM space available for custom LEDs");
 
@@ -50,6 +51,7 @@ typedef struct {
     uint8_t startup_animation;
     uint8_t h;
     uint8_t s;
+    bool shutdown_animation;
 } rpi_rgb_mode_t;
 
 #endif
@@ -75,10 +77,12 @@ enum rpi_command_id {
 
 #ifdef RGB_MATRIX_ENABLE
 void change_rpi_rgb_mode(bool increase);
+void set_rpi_rgb_mode(uint8_t mode_index, bool save_index);
 void change_rpi_rgb_hue(bool increase);
 void reload_rpi_rgb_mode_from_eeprom(void);
 bool rpi_rgb_current_mode_is_a_preset(void);
 uint8_t rpi_rgb_current_mode_startup_animation(void);
+bool rpi_rgb_current_mode_has_shutdown_animation(void);
 
 bool rpi_rgb_current_mode_is_fixed_hue(void);
 void configure_rpi_rgb_mode(uint8_t mode_index, rpi_rgb_mode_t *mode);

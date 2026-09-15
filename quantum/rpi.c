@@ -49,9 +49,10 @@ __attribute__((weak)) bool compatible_eeprom_version(uint16_t old_version, uint1
 void init_rpi_rgb_modes(void) {
     dprintf("[RPI] Initializing RGB modes\n");
 
-    rpi_rgb_mode_t led_off_mode = {RGB_MATRIX_DEFAULT_FLAGS, VIALRGB_EFFECT_OFF, RGB_MATRIX_DEFAULT_SPD, true, START_ANIM_B_FADE_VAL, RGB_MATRIX_DEFAULT_HUE, RGB_MATRIX_DEFAULT_SAT};
-    rpi_rgb_mode_t empty_mode = {RGB_MATRIX_DEFAULT_FLAGS, SKIP_MODE, 0, false, START_ANIM_B_FADE_VAL, 0, 0};
-    rpi_rgb_mode_t direct_led_mode = {LED_FLAG_ALL,VIALRGB_EFFECT_DIRECT,255,true,START_ANIM_B_FADE_VAL,0,0};
+    rpi_rgb_mode_t led_off_mode = {RGB_MATRIX_DEFAULT_FLAGS, VIALRGB_EFFECT_OFF, RGB_MATRIX_DEFAULT_SPD, true, START_ANIM_B_FADE_VAL, RGB_MATRIX_DEFAULT_HUE, RGB_MATRIX_DEFAULT_SAT, false};
+    rpi_rgb_mode_t empty_mode = {RGB_MATRIX_DEFAULT_FLAGS, SKIP_MODE, 0, false, START_ANIM_B_FADE_VAL, 0, 0, false};
+    rpi_rgb_mode_t direct_led_mode = {LED_FLAG_ALL,VIALRGB_EFFECT_DIRECT,255,true,START_ANIM_B_FADE_VAL,0,0, false};
+    rpi_rgb_mode_t led_off_idle_mode = {RGB_MATRIX_DEFAULT_FLAGS, VIALRGB_EFFECT_OFF, RGB_MATRIX_DEFAULT_SPD, true, START_ANIM_B_FADE_VAL, RGB_MATRIX_DEFAULT_HUE, RGB_MATRIX_DEFAULT_SAT, true};
 
     configure_rpi_rgb_mode(0, &led_off_mode);
     dprintf("[RPI] Set led_off_mode at index 0\n");
@@ -66,6 +67,8 @@ void init_rpi_rgb_modes(void) {
 
     configure_rpi_rgb_mode(RPI_RGB_SEQUENCE_MODE_CUSTOM_INDEX, &direct_led_mode);
     dprintf("[RPI] Set direct_mode at custom index\n");
+    configure_rpi_rgb_mode(RPI_RGB_SEQUENCE_MODE_IDLE_INDEX, &led_off_idle_mode);
+    dprintf("[RPI] Set led_off_idle_mode at idle index\n");
 }
 
 void init_rpi_rgb_custom_leds(void) {
@@ -245,6 +248,13 @@ uint8_t rpi_rgb_current_mode_startup_animation(void) {
     return mode.startup_animation;
 }
 
+bool rpi_rgb_current_mode_has_shutdown_animation(void) {
+    rpi_rgb_mode_t mode;
+    nvm_rpi_get_rgb_mode(current_mode_index, &mode);
+    return mode.shutdown_animation;
+}
+
+
 bool rpi_rgb_current_mode_is_fixed_hue(void) {
     rpi_rgb_mode_t mode;
     nvm_rpi_get_rgb_mode(current_mode_index, &mode);
@@ -323,6 +333,7 @@ void rpi_handle_cmd(uint8_t *msg, uint8_t length) {
             command_data[6] = mode.startup_animation;
             command_data[7] = mode.h;
             command_data[8] = mode.s;
+            command_data[9] = mode.shutdown_animation;
             break;
         }
         case id_rpi_set_mode: {
@@ -338,6 +349,7 @@ void rpi_handle_cmd(uint8_t *msg, uint8_t length) {
             mode.startup_animation = command_data[6];
             mode.h = command_data[7];
             mode.s = command_data[8];
+            mode.shutdown_animation = (mode_index == RPI_RGB_SEQUENCE_MODE_IDLE_INDEX) ? true : command_data[9];
             configure_rpi_rgb_mode(mode_index, &mode);
             if (mode_index == current_mode_index) {
                 set_rpi_rgb_mode(mode_index, false);

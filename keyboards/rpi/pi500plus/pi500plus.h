@@ -37,7 +37,9 @@ typedef enum {
 	RPI_ANIM_STARTUP_ANIM, // Startup animation
 	RPI_ANIM_STARTUP_FADE, // Startup Fade to effect
 	RPI_ANIM_ON, // On
-	RPI_ANIM_IDLE, // Future use
+	RPI_ANIM_SHUTDOWN_FADE, // Shutdown Fade away from effect
+	RPI_ANIM_SHUTDOWN_ANIM, // Shutdown animation
+	RPI_ANIM_IDLE, // Idle preset
 } rpi_anim_state_t;
 
 #ifdef RGB_MATRIX_ENABLE
@@ -45,6 +47,7 @@ typedef enum {
 #ifdef RPI_RGB_STARTUP_ANIMATION
 
 void rpi_rgb_matrix_startup_callback(uint8_t startup_animation_type);
+void rpi_rgb_matrix_shutdown_callback(uint8_t startup_animation_type);
 #endif //#ifdef RPI_RGB_STARTUP_ANIMATION
 
 enum rpi_rgb_modes_enum {

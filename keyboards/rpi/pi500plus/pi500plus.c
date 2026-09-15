@@ -102,13 +102,15 @@ typedef union {
 kb_config_t kb_config;
 
 rpi_rgb_mode_t default_rpi_rgb_modes[RPI_RGB_MODES_MAX] = {
-	{RGB_MATRIX_DEFAULT_FLAGS, VIALRGB_EFFECT_OFF, RGB_MATRIX_DEFAULT_SPD, false, START_ANIM_B_FADE_VAL, RGB_MATRIX_DEFAULT_HUE, RGB_MATRIX_DEFAULT_SAT}, // Mode 0 matches RGB default, for simplicity when EEPROM is reset
-    {LED_FLAG_ALL, VIALRGB_EFFECT_SOLID_COLOR, RGB_MATRIX_DEFAULT_SPD, true, START_ANIM_W_FADE_SAT, 0, 0},
-    {LED_FLAG_ALL, VIALRGB_EFFECT_SOLID_COLOR, RGB_MATRIX_DEFAULT_SPD, false, START_ANIM_W_FADE_SAT, 0, 255},
-    {LED_FLAG_ALL, VIALRGB_EFFECT_GRADIENT_LEFT_RIGHT, 127, true, START_ANIM_W_FADE_SAT, 0, 255},
-    {LED_FLAG_ALL, VIALRGB_EFFECT_CYCLE_PINWHEEL, 80, true, START_ANIM_W_FADE_SAT, 0, 255},
-    {LED_FLAG_ALL, VIALRGB_EFFECT_TYPING_HEATMAP, 150, true, START_ANIM_B_NO_FADE, 0, 255},
-    {LED_FLAG_ALL, VIALRGB_EFFECT_SOLID_REACTIVE_SIMPLE, 100, false, START_ANIM_B_NO_FADE, 0, 255}
+	{RGB_MATRIX_DEFAULT_FLAGS, VIALRGB_EFFECT_OFF, RGB_MATRIX_DEFAULT_SPD, false, START_ANIM_B_FADE_VAL, RGB_MATRIX_DEFAULT_HUE, RGB_MATRIX_DEFAULT_SAT, false}, // Mode 0 matches RGB default, for simplicity when EEPROM is reset
+    {LED_FLAG_ALL, VIALRGB_EFFECT_SOLID_COLOR, RGB_MATRIX_DEFAULT_SPD, true, START_ANIM_W_FADE_SAT, 0, 0, false},
+    {LED_FLAG_ALL, VIALRGB_EFFECT_SOLID_COLOR, RGB_MATRIX_DEFAULT_SPD, false, START_ANIM_W_FADE_SAT, 0, 255, false},
+    {LED_FLAG_ALL, VIALRGB_EFFECT_GRADIENT_LEFT_RIGHT, 127, true, START_ANIM_W_FADE_SAT, 0, 255, false},
+    {LED_FLAG_ALL, VIALRGB_EFFECT_CYCLE_PINWHEEL, 80, true, START_ANIM_W_FADE_SAT, 0, 255, false},
+    {LED_FLAG_ALL, VIALRGB_EFFECT_TYPING_HEATMAP, 150, true, START_ANIM_B_NO_FADE, 0, 255, false},
+    {LED_FLAG_ALL, VIALRGB_EFFECT_SOLID_REACTIVE_SIMPLE, 100, false, START_ANIM_B_NO_FADE, 0, 255, false},
+    {}, // Direct LED mode
+    {LED_FLAG_ALL, VIALRGB_EFFECT_OFF, RGB_MATRIX_DEFAULT_SPD, false, NO_START_ANIMATION, RGB_MATRIX_DEFAULT_HUE, RGB_MATRIX_DEFAULT_SAT, true}, // Idle mode
 };
 
 #endif // RGB_MATRIX_ENABLE
@@ -162,19 +164,34 @@ void eeconfig_init_rpi_kb(void){
 uint32_t power_led_timer;
 bool power_led_timer_running;
 static rpi_anim_state_t anim = RPI_ANIM_OFF;
+// Skip the first USB Down, it occurs during boot
+static uint32_t usb_cycle = 0;
 
 #ifdef RPI_RGB_STARTUP_ANIMATION
-#define SAT_FADE_TIMER_DELAY 5
-#define SAT_FADE_STEP 2
-uint32_t sat_fade_timer;
-uint8_t sat_fade_target;
-bool sat_fade_timer_running = false;
+#define SAT_STARTUP_FADE_TIMER_DELAY 5
+#define SAT_STARTUP_FADE_STEP 2
+uint32_t sat_startup_fade_timer;
+uint8_t sat_startup_fade_target;
+bool sat_startup_fade_timer_running = false;
 
-#define VAL_FADE_TIMER_DELAY 5
-#define VAL_FADE_STEP 2
-uint32_t val_fade_timer;
-uint8_t val_fade_target;
-bool val_fade_timer_running = false;
+#define VAL_STARTUP_FADE_TIMER_DELAY 5
+#define VAL_STARTUP_FADE_STEP 2
+uint32_t val_startup_fade_timer;
+uint8_t val_startup_fade_target;
+bool val_startup_fade_timer_running = false;
+
+#define SAT_SHUTDOWN_FADE_TIMER_DELAY 5
+#define SAT_SHUTDOWN_FADE_STEP 2
+uint32_t sat_shutdown_fade_timer;
+uint8_t sat_shutdown_fade_previous;
+bool sat_shutdown_fade_timer_running = false;
+
+#define VAL_SHUTDOWN_FADE_TIMER_DELAY 5
+#define VAL_SHUTDOWN_FADE_STEP 2
+uint32_t val_shutdown_fade_timer;
+uint8_t val_shutdown_fade_previous;
+bool val_shutdown_fade_timer_running = false;
+
 #endif // RPI_RGB_STARTUP_ANIMATION
 
 static void rpi_rgb_set_anim_state(rpi_anim_state_t next) {
@@ -194,14 +211,32 @@ static void rpi_rgb_set_anim_state(rpi_anim_state_t next) {
             rgb_matrix_reload_from_eeprom();
             break;
         case RPI_ANIM_STARTUP_FADE:
-            if (sat_fade_timer_running) {
-                sat_fade_timer_running = false;
-                rgb_matrix_config.hsv.s = sat_fade_target;
+            if (sat_startup_fade_timer_running) {
+                sat_startup_fade_timer_running = false;
+                rgb_matrix_config.hsv.s = sat_startup_fade_target;
             }
-            if (val_fade_timer_running) {
-                val_fade_timer_running = false;
-                rgb_matrix_config.hsv.v = val_fade_target;
+            if (val_startup_fade_timer_running) {
+                val_startup_fade_timer_running = false;
+                rgb_matrix_config.hsv.v = val_startup_fade_target;
             }
+            break;
+        case RPI_ANIM_SHUTDOWN_FADE:
+            if (sat_shutdown_fade_timer_running) {
+                sat_shutdown_fade_timer_running = false;
+                rgb_matrix_config.hsv.s = sat_shutdown_fade_previous;
+            }
+            if (val_shutdown_fade_timer_running) {
+                val_shutdown_fade_timer_running = false;
+                rgb_matrix_config.hsv.v = val_shutdown_fade_previous;
+            }
+        break;
+        case RPI_ANIM_SHUTDOWN_ANIM:
+            reload_rpi_rgb_mode_from_eeprom();
+            rgb_matrix_reload_from_eeprom();
+            break;
+        case RPI_ANIM_IDLE:
+            reload_rpi_rgb_mode_from_eeprom();
+            rgb_matrix_reload_from_eeprom();
             break;
 #endif // RPI_RGB_STARTUP_ANIMATION
         default:
@@ -213,6 +248,9 @@ static void rpi_rgb_set_anim_state(rpi_anim_state_t next) {
     switch (anim) {
         case RPI_ANIM_OFF:
             rgb_matrix_set_flags_noeeprom(LED_FLAG_NONE);
+            break;
+        case RPI_ANIM_IDLE:
+            set_rpi_rgb_mode(RPI_RGB_SEQUENCE_MODE_IDLE_INDEX, false);
             break;
         default:
             break;
@@ -229,19 +267,19 @@ void rpi_rgb_matrix_startup_callback(uint8_t startup_animation_mode) {
         switch (startup_animation_option) {
             case START_ANIM_B_FADE_VAL:
                 rpi_rgb_set_anim_state(RPI_ANIM_STARTUP_FADE);
-                val_fade_target = rgb_matrix_config.hsv.v;
+                val_startup_fade_target = rgb_matrix_config.hsv.v;
                 dprintf("rgb_matrix_config.hsv.v = %d \n", rgb_matrix_config.hsv.v);
-                val_fade_timer = sync_timer_read32() + VAL_FADE_TIMER_DELAY;
-                val_fade_timer_running = true;
+                val_startup_fade_timer = sync_timer_read32() + VAL_STARTUP_FADE_TIMER_DELAY;
+                val_startup_fade_timer_running = true;
                 rgb_matrix_config.hsv.v = 0;
                 dprintf("Val Fade Begun\n");
                 break;
             case START_ANIM_W_FADE_SAT:
                 rpi_rgb_set_anim_state(RPI_ANIM_STARTUP_FADE);
-                sat_fade_target = rgb_matrix_config.hsv.s;
+                sat_startup_fade_target = rgb_matrix_config.hsv.s;
                 dprintf("rgb_matrix_config.hsv.s = %d \n", rgb_matrix_config.hsv.s);
-                sat_fade_timer = sync_timer_read32() + SAT_FADE_TIMER_DELAY;
-                sat_fade_timer_running = true;
+                sat_startup_fade_timer = sync_timer_read32() + SAT_STARTUP_FADE_TIMER_DELAY;
+                sat_startup_fade_timer_running = true;
                 rgb_matrix_config.hsv.s = 0;
                 dprintf("Sat Fade Begun\n");
                 break;
@@ -250,45 +288,110 @@ void rpi_rgb_matrix_startup_callback(uint8_t startup_animation_mode) {
         }
     }
 }
+
+void rpi_rgb_matrix_shutdown_callback(uint8_t startup_animation_type) {
+    dprintf("Shutdown Callback\n");
+    if(anim == RPI_ANIM_SHUTDOWN_ANIM) { // Check mainboard hasn't powered off during shutdown animation
+        rpi_rgb_set_anim_state(RPI_ANIM_IDLE);
+    }
+}
 #endif // RPI_RGB_STARTUP_ANIMATION
 
 void rpi_rgb_matrix_startup(void) {
     reload_rpi_rgb_mode_from_eeprom();
     rgb_matrix_reload_from_eeprom();
     #ifdef RPI_RGB_STARTUP_ANIMATION
-    if(anim == RPI_ANIM_OFF) {
-        // Active RPI RGB mode local copy updated in eeconfig_init so don't need to re-read
-        switch (rpi_rgb_current_mode_startup_animation()) {
-            case NO_START_ANIMATION:
-                rpi_rgb_set_anim_state(RPI_ANIM_ON);
-                memset(g_rgb_frame_buffer, 0, sizeof g_rgb_frame_buffer); // Ensures framebuffer animations reset on reboot
-                break;
-            case START_ANIM_B_NO_FADE:
-                rpi_rgb_set_anim_state(RPI_ANIM_STARTUP_ANIM);
-                rgb_matrix_config.mode = RGB_MATRIX_CUSTOM_STARTUP_ANIM_B;
-                break;
-            case START_ANIM_B_FADE_VAL:
-                rpi_rgb_set_anim_state(RPI_ANIM_STARTUP_ANIM);
-                rgb_matrix_config.mode = RGB_MATRIX_CUSTOM_STARTUP_ANIM_B;
-                break;
-            case START_ANIM_W_NO_FADE:
-                rpi_rgb_set_anim_state(RPI_ANIM_STARTUP_ANIM);
-                rgb_matrix_config.mode = RGB_MATRIX_CUSTOM_STARTUP_ANIM_W;
-                break;
-            case START_ANIM_W_FADE_SAT:
-                rpi_rgb_set_anim_state(RPI_ANIM_STARTUP_ANIM);
-                rgb_matrix_config.mode = RGB_MATRIX_CUSTOM_STARTUP_ANIM_W;
-                break;
-        }
-        if (anim == RPI_ANIM_STARTUP_ANIM) {
-            dprintf("Startup Animation Started\n");
-        }
-        // Startup animation callback function called at end of animation
+    // Active RPI RGB mode local copy updated in eeconfig_init so don't need to re-read
+    switch (rpi_rgb_current_mode_startup_animation()) {
+        case NO_START_ANIMATION:
+            rpi_rgb_set_anim_state(RPI_ANIM_ON);
+            memset(g_rgb_frame_buffer, 0, sizeof g_rgb_frame_buffer); // Ensures framebuffer animations reset on reboot
+            break;
+        case START_ANIM_B_NO_FADE:
+            rpi_rgb_set_anim_state(RPI_ANIM_STARTUP_ANIM);
+            rgb_matrix_config.mode = RGB_MATRIX_CUSTOM_STARTUP_ANIM_B;
+            break;
+        case START_ANIM_B_FADE_VAL:
+            rpi_rgb_set_anim_state(RPI_ANIM_STARTUP_ANIM);
+            rgb_matrix_config.mode = RGB_MATRIX_CUSTOM_STARTUP_ANIM_B;
+            break;
+        case START_ANIM_W_NO_FADE:
+            rpi_rgb_set_anim_state(RPI_ANIM_STARTUP_ANIM);
+            rgb_matrix_config.mode = RGB_MATRIX_CUSTOM_STARTUP_ANIM_W;
+            break;
+        case START_ANIM_W_FADE_SAT:
+            rpi_rgb_set_anim_state(RPI_ANIM_STARTUP_ANIM);
+            rgb_matrix_config.mode = RGB_MATRIX_CUSTOM_STARTUP_ANIM_W;
+            break;
     }
+    if (anim == RPI_ANIM_STARTUP_ANIM) {
+        dprintf("Startup Animation Started\n");
+    }
+    // Startup animation callback function called at end of animation
     #else // RPI_RGB_STARTUP_ANIMATION
     rpi_rgb_set_anim_state(RPI_ANIM_ON);
     #endif // RPI_RGB_STARTUP_ANIMATION
 }
+
+#ifdef RPI_RGB_STARTUP_ANIMATION
+void rpi_rgb_start_shutdown_animation(void) {
+    switch (rpi_rgb_current_mode_startup_animation()) {
+        case NO_START_ANIMATION:
+            rpi_rgb_set_anim_state(RPI_ANIM_IDLE);
+            break;
+        case START_ANIM_B_NO_FADE:
+            rpi_rgb_set_anim_state(RPI_ANIM_SHUTDOWN_ANIM);
+            rgb_matrix_mode_noeeprom(RGB_MATRIX_CUSTOM_SHUTDOWN_ANIM_B);
+            break;
+        case START_ANIM_B_FADE_VAL:
+            rpi_rgb_set_anim_state(RPI_ANIM_SHUTDOWN_ANIM);
+            rgb_matrix_mode_noeeprom(RGB_MATRIX_CUSTOM_SHUTDOWN_ANIM_B);
+            break;
+        case START_ANIM_W_NO_FADE:
+            rpi_rgb_set_anim_state(RPI_ANIM_SHUTDOWN_ANIM);
+            rgb_matrix_mode_noeeprom(RGB_MATRIX_CUSTOM_SHUTDOWN_ANIM_W);
+            break;
+        case START_ANIM_W_FADE_SAT:
+            rpi_rgb_set_anim_state(RPI_ANIM_SHUTDOWN_ANIM);
+            rgb_matrix_mode_noeeprom(RGB_MATRIX_CUSTOM_SHUTDOWN_ANIM_W);
+            break;
+    }
+    if (anim == RPI_ANIM_SHUTDOWN_ANIM) {
+        dprintf("Shutdown Animation Started\n");
+    }
+}
+#endif // RPI_RGB_STARTUP_ANIMATION
+
+void rpi_rgb_matrix_enter_idle(void) {
+#ifdef RPI_RGB_STARTUP_ANIMATION
+    switch (rpi_rgb_current_mode_startup_animation()) {
+        case NO_START_ANIMATION:
+            rpi_rgb_set_anim_state(RPI_ANIM_IDLE);
+            break;
+        case START_ANIM_B_NO_FADE:
+            rpi_rgb_start_shutdown_animation();
+            break;
+        case START_ANIM_W_NO_FADE:
+            rpi_rgb_start_shutdown_animation();
+            break;
+        case START_ANIM_B_FADE_VAL:
+            rpi_rgb_set_anim_state(RPI_ANIM_SHUTDOWN_FADE);
+            val_shutdown_fade_previous = rgb_matrix_config.hsv.v;
+            val_shutdown_fade_timer = sync_timer_read32() + VAL_SHUTDOWN_FADE_TIMER_DELAY;
+            val_shutdown_fade_timer_running = true;
+            break;
+        case START_ANIM_W_FADE_SAT:
+            rpi_rgb_set_anim_state(RPI_ANIM_SHUTDOWN_FADE);
+            sat_shutdown_fade_previous = rgb_matrix_config.hsv.s;
+            sat_shutdown_fade_timer = sync_timer_read32() + SAT_SHUTDOWN_FADE_TIMER_DELAY;
+            sat_shutdown_fade_timer_running = true;
+            break;
+    }
+#else // RPI_RGB_STARTUP_ANIMATION
+    rpi_rgb_set_anim_state(RPI_ANIM_IDLE);
+#endif // RPI_RGB_STARTUP_ANIMATION
+}
+
 #endif // RPI_RGB_DISABLE_AUTO
 #endif // RGB_MATRIX_ENABLE
 
@@ -380,15 +483,18 @@ void housekeeping_task_kb(void) {
                 bit_code <<= 1;
             }
         }
-
         #ifdef RGB_MATRIX_ENABLE
-        if (anim == RPI_ANIM_OFF) {
+        if (anim == RPI_ANIM_OFF || (anim == RPI_ANIM_IDLE && (usb_cycle > 1))) {
             rpi_rgb_matrix_startup(); // Reenable stored rgb state with startup animation
         }
         #endif // #ifdef RGB_MATRIX_ENABLE
     } else if (usb_active && USB_DRIVER.state != USB_ACTIVE) {
         usb_active = false;
         dprintf("USB Down\n");
+        usb_cycle += 1;
+        if (rpi_rgb_current_mode_has_shutdown_animation() && (usb_cycle > 1)) {
+            rpi_rgb_matrix_enter_idle();
+        }
     }
 
     #ifdef RGB_MATRIX_ENABLE
@@ -399,6 +505,7 @@ void housekeeping_task_kb(void) {
             if (!mainboard_status && !usb_active && (anim != RPI_ANIM_OFF)) {
                 rpi_rgb_set_anim_state(RPI_ANIM_OFF);
                 dprintf("RED LED on (Device powered off)\n");
+                usb_cycle = 0;
             }
             power_led_timer_running = false;
         }
@@ -411,42 +518,80 @@ void housekeeping_task_kb(void) {
         }
     }
     #ifdef RPI_RGB_STARTUP_ANIMATION
-    if(sat_fade_timer_running) {
-        if (sync_timer_read32() > sat_fade_timer) {
+    if(sat_startup_fade_timer_running) {
+        if (sync_timer_read32() > sat_startup_fade_timer) {
             // Might be a nicer way to do this calculation but qadd8 would not include properly
-            uint16_t i = rgb_matrix_config.hsv.s + SAT_FADE_STEP;
+            uint16_t i = rgb_matrix_config.hsv.s + SAT_STARTUP_FADE_STEP;
             if (i>255) i=255;
-            if (i>sat_fade_target) {
-                rgb_matrix_config.hsv.s = sat_fade_target;
+            if (i>sat_startup_fade_target) {
+                rgb_matrix_config.hsv.s = sat_startup_fade_target;
             } else {
                 rgb_matrix_config.hsv.s = i;
             }
             dprintf("rgb_matrix_config.hsv.s = %d \n", rgb_matrix_config.hsv.s);
-            if(rgb_matrix_config.hsv.s == sat_fade_target) {
+            if(rgb_matrix_config.hsv.s == sat_startup_fade_target) {
                 rpi_rgb_set_anim_state(RPI_ANIM_ON);
-                dprintf("Sat Fade Complete\n");
+                dprintf("Startup Sat Fade Complete\n");
             }
             else {
-                sat_fade_timer = sync_timer_read32() + SAT_FADE_TIMER_DELAY;
+                sat_startup_fade_timer = sync_timer_read32() + SAT_STARTUP_FADE_TIMER_DELAY;
             }
         }
     }
-    if(val_fade_timer_running) {
-        if (sync_timer_read32() > val_fade_timer) {
+    if(val_startup_fade_timer_running) {
+        if (sync_timer_read32() > val_startup_fade_timer) {
             // Might be a nicer way to do this calculation but qadd8 would not include properly
-            uint16_t i = rgb_matrix_config.hsv.v + VAL_FADE_STEP;
-            if (i>val_fade_target) {
-                rgb_matrix_config.hsv.v = val_fade_target;
+            uint16_t i = rgb_matrix_config.hsv.v + VAL_STARTUP_FADE_STEP;
+            if (i>val_startup_fade_target) {
+                rgb_matrix_config.hsv.v = val_startup_fade_target;
             } else {
                 rgb_matrix_config.hsv.v = i;
             }
             dprintf("rgb_matrix_config.hsv.v = %d \n", rgb_matrix_config.hsv.v);
-            if(rgb_matrix_config.hsv.v == val_fade_target) {
+            if(rgb_matrix_config.hsv.v == val_startup_fade_target) {
                 rpi_rgb_set_anim_state(RPI_ANIM_ON);
-                dprintf("Val Fade Complete\n");
+                dprintf("Startup Val Fade Complete\n");
             }
             else {
-                val_fade_timer = sync_timer_read32() + VAL_FADE_TIMER_DELAY;
+                val_startup_fade_timer = sync_timer_read32() + VAL_STARTUP_FADE_TIMER_DELAY;
+            }
+        }
+    }
+    if(sat_shutdown_fade_timer_running) {
+        if (sync_timer_read32() > sat_shutdown_fade_timer) {
+            // Might be a nicer way to do this calculation but qadd8 would not include properly
+            int16_t i = rgb_matrix_config.hsv.s - SAT_SHUTDOWN_FADE_STEP;
+            if (i<0) {
+                rgb_matrix_config.hsv.s = 0;
+            } else {
+                rgb_matrix_config.hsv.s = i;
+            }
+            dprintf("rgb_matrix_config.hsv.s = %d \n", rgb_matrix_config.hsv.s);
+            if(rgb_matrix_config.hsv.s == 0) {
+                dprintf("Shutdown Sat Fade Complete\n");
+                rpi_rgb_start_shutdown_animation();
+            }
+            else {
+                sat_shutdown_fade_timer = sync_timer_read32() + SAT_SHUTDOWN_FADE_TIMER_DELAY;
+            }
+        }
+    }
+    if(val_shutdown_fade_timer_running) {
+        if (sync_timer_read32() > val_shutdown_fade_timer) {
+            // Might be a nicer way to do this calculation but qadd8 would not include properly
+            int16_t i = rgb_matrix_config.hsv.v - VAL_SHUTDOWN_FADE_STEP;
+            if (i<0) {
+                rgb_matrix_config.hsv.v = 0;
+            } else {
+                rgb_matrix_config.hsv.v = i;
+            }
+            dprintf("rgb_matrix_config.hsv.v = %d \n", rgb_matrix_config.hsv.v);
+            if(rgb_matrix_config.hsv.v == 0) {
+                dprintf("Shutdown Val Fade Complete\n");
+                rpi_rgb_start_shutdown_animation();
+            }
+            else {
+                val_shutdown_fade_timer = sync_timer_read32() + VAL_SHUTDOWN_FADE_TIMER_DELAY;
             }
         }
     }
@@ -650,12 +795,12 @@ bool process_record_kb(uint16_t key_code, keyrecord_t *record) { // Custom keyco
 
 #ifdef RGB_MATRIX_ENABLE
 uint8_t indicator_brightness(void) {
-    if (val_fade_timer_running) {
-        if(val_fade_target<RPI_INDICATORS_MIN_BRIGHTNESS) {
+    if (val_startup_fade_timer_running) {
+        if(val_startup_fade_target<RPI_INDICATORS_MIN_BRIGHTNESS) {
             return RPI_INDICATORS_MIN_BRIGHTNESS;
         }
         else {
-            return val_fade_target;
+            return val_startup_fade_target;
         }
     }
     if(rgb_matrix_get_val()<RPI_INDICATORS_MIN_BRIGHTNESS) {

@@ -37,6 +37,10 @@ extern HSV g_direct_mode_colors[RGB_MATRIX_LED_COUNT];
 
 uint8_t current_mode_index;
 
+// milliseconds
+static uint32_t idle_duration;
+static uint32_t idle_duration_start;
+
 #endif //#ifdef RGB_MATRIX_ENABLE
 
 __attribute__((weak)) void eeconfig_init_rpi_kb(void) {}
@@ -260,6 +264,25 @@ bool rpi_rgb_current_mode_is_fixed_hue(void) {
     nvm_rpi_get_rgb_mode(current_mode_index, &mode);
     return mode.fixed_hue;
 }
+
+
+// These durations are in milliseconds
+uint32_t rpi_get_idle_duration(void) {
+    return idle_duration;
+}
+
+uint32_t rpi_get_idle_duration_start(void) {
+    return idle_duration_start;
+}
+
+void rpi_set_idle_duration(uint32_t ms) {
+    idle_duration_start = sync_timer_read32();
+    idle_duration = ms;
+}
+
+void rpi_clear_idle_duration(void) {
+    idle_duration = RPI_IDLE_DURATION_UNSET;
+}
 #endif //#ifdef RGB_MATRIX_ENABLE
 
 void rpi_handle_cmd(uint8_t *msg, uint8_t length) {
@@ -432,6 +455,21 @@ void rpi_handle_cmd(uint8_t *msg, uint8_t length) {
         case id_rpi_load_direct_leds: {
             dprintf("[RPI] LOAD_DIRECT_LEDS command\n");
             load_rpi_direct_leds();
+            break;
+        }
+        case id_rpi_get_idle_duration: {
+            dprintf("[RPI] GET_IDLE_DURATION command\n");
+            uint16_t seconds = rpi_get_idle_duration() / 1000;
+            dprintf("[RPI] Returning %u seconds\n", seconds);
+            command_data[0]  = seconds & 0xFF;
+            command_data[1]  = (seconds >> 8) & 0xFF;
+            break;
+        }
+        case id_rpi_set_idle_duration: {
+            dprintf("[RPI] SET_IDLE_DURATION command\n");
+            uint16_t seconds = command_data[0] | (command_data[1] << 8);
+            dprintf("[RPI] Setting duration to %u seconds\n", seconds);
+            rpi_set_idle_duration(seconds * 1000);
             break;
         }
 #endif //#ifdef RGB_MATRIX_ENABLE

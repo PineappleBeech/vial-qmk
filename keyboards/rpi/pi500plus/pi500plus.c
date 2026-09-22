@@ -19,6 +19,7 @@
 #include "usb_main.h" // Used for "USB_DRIVER" to get the USB connection state
 #include "eeconfig.h"
 #include "rpi.h"
+#include "quantum/nvm/nvm_rpi.h"
 #include "vialrgb.h"
 #include "vial.h"
 
@@ -249,9 +250,23 @@ static void rpi_rgb_set_anim_state(rpi_anim_state_t next) {
         case RPI_ANIM_OFF:
             rgb_matrix_set_flags_noeeprom(LED_FLAG_NONE);
             break;
-        case RPI_ANIM_IDLE:
-            set_rpi_rgb_mode(RPI_RGB_SEQUENCE_MODE_IDLE_INDEX, false);
-            break;
+#ifdef RPI_RGB_STARTUP_ANIMATION
+        case RPI_ANIM_IDLE: {
+              rpi_rgb_mode_t idle;
+              if (nvm_rpi_get_rgb_mode(RPI_RGB_SEQUENCE_MODE_IDLE_INDEX, &idle) == 0 &&
+                  idle.effect == IDLE_PROGRESS_BAR_MODE) {
+                  rgb_matrix_mode_noeeprom(RGB_MATRIX_CUSTOM_IDLE_PROGRESS_BAR);
+                  rgb_matrix_set_speed_noeeprom(idle.speed);
+                  rgb_matrix_set_flags_noeeprom(idle.flags);
+                  if (idle.fixed_hue) {
+                      rgb_matrix_sethsv_noeeprom(idle.h, idle.s, rgb_matrix_get_val());
+                  }
+              } else {
+                  set_rpi_rgb_mode(RPI_RGB_SEQUENCE_MODE_IDLE_INDEX, false);
+              }
+              break;
+        }
+#endif // RPI_RGB_STARTUP_ANIMATION
         default:
             break;
     }
@@ -298,6 +313,7 @@ void rpi_rgb_matrix_shutdown_callback(uint8_t startup_animation_type) {
 #endif // RPI_RGB_STARTUP_ANIMATION
 
 void rpi_rgb_matrix_startup(void) {
+    rpi_clear_idle_duration();
     reload_rpi_rgb_mode_from_eeprom();
     rgb_matrix_reload_from_eeprom();
     #ifdef RPI_RGB_STARTUP_ANIMATION
@@ -388,7 +404,7 @@ void rpi_rgb_matrix_enter_idle(void) {
             break;
     }
 #else // RPI_RGB_STARTUP_ANIMATION
-    rpi_rgb_set_anim_state(RPI_ANIM_IDLE);
+    rpi_rgb_set_anim_state(RPI_ANIM_OFF);
 #endif // RPI_RGB_STARTUP_ANIMATION
 }
 
@@ -484,17 +500,24 @@ void housekeeping_task_kb(void) {
             }
         }
         #ifdef RGB_MATRIX_ENABLE
-        if (anim == RPI_ANIM_OFF || (anim == RPI_ANIM_IDLE && (usb_cycle > 1))) {
+        #ifdef RPI_RGB_DISABLE_AUTO
+        if (anim == RPI_ANIM_OFF ||
+            ((anim == RPI_ANIM_IDLE || anim == RPI_ANIM_SHUTDOWN_FADE || anim == RPI_ANIM_SHUTDOWN_ANIM) && (usb_cycle > 1))) {
             rpi_rgb_matrix_startup(); // Reenable stored rgb state with startup animation
         }
+        #endif // #ifdef RPI_RGB_DISABLE_AUTO
         #endif // #ifdef RGB_MATRIX_ENABLE
     } else if (usb_active && USB_DRIVER.state != USB_ACTIVE) {
         usb_active = false;
         dprintf("USB Down\n");
+        #ifdef RGB_MATRIX_ENABLE
+        #ifdef RPI_RGB_DISABLE_AUTO
         usb_cycle += 1;
         if (rpi_rgb_current_mode_has_shutdown_animation() && (usb_cycle > 1)) {
             rpi_rgb_matrix_enter_idle();
         }
+        #endif // #ifdef RPI_RGB_DISABLE_AUTO
+        #endif // #ifdef RGB_MATRIX_ENABLE
     }
 
     #ifdef RGB_MATRIX_ENABLE

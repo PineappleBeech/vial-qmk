@@ -42,6 +42,9 @@ STATIC_ASSERT(RGB_MATRIX_LED_COUNT <= RPI_RGB_CUSTOM_LEDS_MAX, "RGB_MATRIX_LED_C
 #define START_ANIM_W_FADE_SAT 0x04
 
 #define SKIP_MODE 0xFFFF
+#define IDLE_PROGRESS_BAR_MODE 0xFFFE
+
+#define RPI_IDLE_DURATION_UNSET 0
 
 typedef struct {
     uint8_t flags;
@@ -72,6 +75,8 @@ enum rpi_command_id {
     id_rpi_get_saved_direct_leds   = 0x0C,
     id_rpi_save_direct_leds        = 0x0D,
     id_rpi_load_direct_leds        = 0x0E,
+    id_rpi_get_idle_duration       = 0x0F,
+    id_rpi_set_idle_duration       = 0x10,
 #endif
 };
 
@@ -86,6 +91,11 @@ bool rpi_rgb_current_mode_has_shutdown_animation(void);
 
 bool rpi_rgb_current_mode_is_fixed_hue(void);
 void configure_rpi_rgb_mode(uint8_t mode_index, rpi_rgb_mode_t *mode);
+
+uint32_t rpi_get_idle_duration(void);
+uint32_t rpi_get_idle_duration_start(void);
+void rpi_set_idle_duration(uint32_t ms);
+void rpi_clear_idle_duration(void);
 #endif
 
 void rpi_handle_cmd(uint8_t *data, uint8_t length);

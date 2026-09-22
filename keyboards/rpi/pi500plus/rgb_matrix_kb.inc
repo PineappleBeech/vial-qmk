@@ -19,10 +19,12 @@ RGB_MATRIX_EFFECT(STARTUP_ANIM_W)
 RGB_MATRIX_EFFECT(STARTUP_ANIM_B)
 RGB_MATRIX_EFFECT(SHUTDOWN_ANIM_W)
 RGB_MATRIX_EFFECT(SHUTDOWN_ANIM_B)
+RGB_MATRIX_EFFECT(IDLE_PROGRESS_BAR)
 
 #ifdef RGB_MATRIX_CUSTOM_EFFECT_IMPLS
 
 #include "pi500plus.h"
+#include "rpi.h"
 
 #define STARTUP_ANIM_FRAMES 120
 #define SHUTDOWN_ANIM_FRAMES 120
@@ -301,6 +303,54 @@ static bool SHUTDOWN_ANIM_B(effect_params_t* params) {
   }
 
   return rgb_matrix_check_finished_leds(led_max); // Returns false if led_max is the final led in the matrix
+}
+
+#define RPI_KEY_HALF_WIDTH  16           // must be a power of two
+#define RPI_KEY_FADE_SHIFT  5            // log2(2 * RPI_KEY_HALF_WIDTH) for dividing
+#define RPI_KEYBOARD_WIDTH 224
+
+static bool IDLE_PROGRESS_BAR(effect_params_t* params) {
+  static uint32_t duration;
+  static uint8_t edge;
+  static bool running;
+
+
+  RGB_MATRIX_USE_LIMITS(led_min, led_max);
+
+  inline void update_leds(void) {
+    for (int n = led_min; n < led_max; n++) {
+      HSV hsv = rgb_matrix_config.hsv;
+      uint8_t x = g_led_config.point[n].x;
+      if (x >= (edge + RPI_KEY_HALF_WIDTH) || !running) {
+        hsv.v = 0;
+      } else if (x > (edge - RPI_KEY_HALF_WIDTH)) {
+        hsv.v = (uint8_t)(((uint16_t)hsv.v * (uint16_t)(edge + RPI_KEY_HALF_WIDTH - x)) >> RPI_KEY_FADE_SHIFT);
+      }
+      RGB rgb = rgb_matrix_hsv_to_rgb(hsv);
+      rgb_matrix_set_color(n, rgb.r, rgb.g, rgb.b);
+    }
+  }
+
+  // Cannot call init here
+
+  if (led_min == 0) {
+    duration = rpi_get_idle_duration();
+    if (duration == 0) {
+      running = false;
+    } else {
+      uint32_t start_time = rpi_get_idle_duration_start();
+      uint64_t elapsed = sync_timer_read32() - start_time;
+      if (elapsed > duration) {
+        elapsed = duration;
+      }
+      uint32_t edge32 = (elapsed * (RPI_KEYBOARD_WIDTH + RPI_KEY_HALF_WIDTH)) / duration;
+      edge = edge32 < 255 ? edge32 : 255;
+      running = true;
+    }
+  }
+  update_leds();
+
+  return rgb_matrix_check_finished_leds(led_max);
 }
 
 #endif // #ifdef RGB_MATRIX_CUSTOM_EFFECT_IMPLS
